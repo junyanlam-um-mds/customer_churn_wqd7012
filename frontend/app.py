@@ -643,4 +643,4 @@ if st.session_state.page not in ["Churn Predictor", "Model Comparison", "Strateg
     with side_col:
         st.markdown("""<div style="background-color: #f0f2f6; padding: 0px; border-radius: 10px; border: 0px solid #dfe1e5;">""", unsafe_allow_html=True)
         render_predictor()
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
