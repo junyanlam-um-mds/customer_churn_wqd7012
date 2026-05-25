@@ -746,7 +746,7 @@ with main_col:
                     Each dot represents a customer. The color indicates the feature value (red = high, blue = low). 
                     For example, high **Customer Service Calls** (red) pushes the churn risk **higher** (right).
                     """)
-                    fig1, ax1 = plt.subplots(figsize=(8, 4))
+                    fig1, ax1 = plt.subplots(figsize=(5, 3))
                     # Pass the matplotlib axis explicitly
                     shap.summary_plot(shap_churn, X_test_sampled, plot_type="dot", max_display=15, show=False)
                     plt.tight_layout()
@@ -758,7 +758,7 @@ with main_col:
                     **Global Feature Importance**: Explains which features have the greatest overall impact on the model's decisions. 
                     This represents the mean absolute SHAP value for each feature.
                     """)
-                    fig2, ax2 = plt.subplots(figsize=(8, 4))
+                    fig2, ax2 = plt.subplots(figsize=(5, 3))
                     shap.summary_plot(shap_churn, X_test_sampled, plot_type="bar", max_display=15, show=False)
                     plt.tight_layout()
                     st.pyplot(fig2)
@@ -774,7 +774,7 @@ with main_col:
                     
                     sample_idx = st.slider("Select Customer Index from Test Set:", 0, len(X_test_sampled) - 1, 0)
                     
-                    fig3, ax3 = plt.subplots(figsize=(8, 4))
+                    fig3, ax3 = plt.subplots(figsize=(5, 3))
                     # Construct Explanation object as requested
                     explanation = shap.Explanation(
                         values=shap_churn[sample_idx],
