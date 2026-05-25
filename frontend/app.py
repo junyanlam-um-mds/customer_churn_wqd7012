@@ -1,39 +1,257 @@
-from IPython.core import ultratb
 import streamlit as st
 import pandas as pd
-import requests
+import numpy as np
+import joblib
 import plotly.express as px
-
-# Backend URL (Uvicorn default)
-API_URL = "http://127.0.0.1:8001"
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+import os
+import logging
 
 st.set_page_config(page_title="Analytics Pro", layout="wide")
 
-# --- 🛠️ SESSION STATE MANAGEMENT ---
+# --- 🧠 SESSION STATE MANAGEMENT ---
 # This tracks which "page" we are on since we aren't using a dropdown
 if "page" not in st.session_state:
     st.session_state.page = "Dashboard"
 if "fullscreen_predictor" not in st.session_state:
     st.session_state.fullscreen_predictor = False
 
-# --- HELPER FUNCTIONS ---
+# --- 📂 MONOLITHIC ASSETS LOADING (IN-MEMORY) ---
+@st.cache_resource
+def load_assets():
+    """
+    Robust loader to locate the pre-trained LightGBM model and customer dataset.
+    Supports running locally (inside frontend/) and on Streamlit Cloud (from repository root).
+    """
+    possible_paths = [
+        # Path 1: Streamlit Cloud/repo root structure
+        ("data/ecommerce_customer_churn_dataset.csv", "backend/churn_model.pkl"),
+        # Path 2: Local execution from inside the frontend/ directory
+        ("../data/ecommerce_customer_churn_dataset.csv", "../backend/churn_model.pkl"),
+        # Path 3: Direct search in case of subfolder execution
+        ("churn_prediction_g18/data/ecommerce_customer_churn_dataset.csv", "churn_prediction_g18/backend/churn_model.pkl")
+    ]
+    
+    csv_path, model_path = None, None
+    for cp, mp in possible_paths:
+        if os.path.exists(cp) and os.path.exists(mp):
+            csv_path = cp
+            model_path = mp
+            break
+            
+    if not csv_path or not model_path:
+        raise FileNotFoundError(
+            f"Could not locate the model (.pkl) or dataset (.csv) files. "
+            f"Current working directory: {os.getcwd()}"
+        )
+        
+    model = joblib.load(model_path)
+    df = pd.read_csv(csv_path)
+    
+    # Pre-compute metrics
+    medians = df.median(numeric_only=True).to_dict()
+    city_labels = {city: idx for idx, city in enumerate(sorted(df['City'].dropna().unique()))}
+    
+    return model, df, medians, city_labels
+
+# Load assets
+try:
+    model, df, _medians, _city_labels = load_assets()
+    assets_loaded = True
+except Exception as e:
+    assets_loaded = False
+    load_error = e
+
+# --- ⚙️ IN-MEMORY BACKEND ANALYTICS LOGIC ---
+def get_dashboard_stats():
+    return {
+        "total_customers": len(df),
+        "churn_rate": float(df['Churned'].mean() * 100),
+        "avg_ltv": float(df['Lifetime_Value'].mean()),
+        "avg_order": float(df['Average_Order_Value'].mean()),
+        "total_purchases": int(df['Total_Purchases'].sum()),
+        "avg_returns": float(df['Returns_Rate'].mean()),
+        "avg_membership": float(df['Membership_Years'].mean()),
+        "support_calls": float(df['Customer_Service_Calls'].mean()),
+        "discount_usage": float(df['Discount_Usage_Rate'].mean()),
+        "login_freq": float(df['Login_Frequency'].mean())
+    }
+
+def get_marketing_targets():
+    # Define Low LTV as the bottom 33%
+    ltv_threshold = df['Lifetime_Value'].quantile(0.33)
+    low_ltv_df = df[df['Lifetime_Value'] <= ltv_threshold].copy()
+    
+    # Simple logic based on Churn and Support Calls
+    def segment_strategy(row):
+        if row['Churned'] == 1:
+            return "Rescue (Discount Needed)"
+        elif row['Customer_Service_Calls'] > 5:
+            return "Support Intervention"
+        else:
+            return "Upsell Candidate"
+
+    low_ltv_df['Strategy'] = low_ltv_df.apply(segment_strategy, axis=1)
+    
+    # Return count by Country and Strategy for the visual
+    summary = low_ltv_df.groupby(['Country', 'Strategy']).size().reset_index(name='Customer_Count')
+    return summary.to_dict(orient="records")
+
+def get_geo_segmentation():
+    # Features for PCA (matches your Colab code)
+    features = ['Total_Purchases', 'Average_Order_Value', 'Membership_Years', 'Login_Frequency', 'Lifetime_Value']
+    X = df[features].fillna(df[features].median())
+    
+    # Scale and Cluster (K=3)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    kmeans = KMeans(n_clusters=3, random_state=42)
+    clusters = kmeans.fit_predict(X_scaled)
+    
+    # PCA to 3 Components for the "Interactive Watch"
+    pca = PCA(n_components=3)
+    pca_results = pca.fit_transform(X_scaled)
+    
+    # Combine into a clean response DataFrame
+    plot_df = df[['Country', 'City', 'Lifetime_Value']].copy()
+    plot_df['PC1'] = pca_results[:, 0]
+    plot_df['PC2'] = pca_results[:, 1]
+    plot_df['PC3'] = pca_results[:, 2]
+    
+    # REAL LIFE MAPPING
+    persona_map = {0: "Window Shoppers", 1: "Brand VIPs", 2: "Rising Stars"}
+    plot_df['Persona'] = [persona_map[c] for c in clusters]
+    return plot_df.to_dict(orient="records")
+
+# The exact 39 features the model expects, in order
+MODEL_FEATURES = [
+    'Age', 'Membership_Years', 'Login_Frequency', 'Pages_Per_Session',
+    'Cart_Abandonment_Rate', 'Wishlist_Items', 'Total_Purchases',
+    'Average_Order_Value', 'Days_Since_Last_Purchase', 'Discount_Usage_Rate',
+    'Returns_Rate', 'Email_Open_Rate', 'Customer_Service_Calls',
+    'Product_Reviews_Written', 'Social_Media_Engagement_Score',
+    'Mobile_App_Usage', 'Lifetime_Value', 'Credit_Balance',
+    'Gender_Male', 'Gender_Other',
+    'Engagement_Index', 'Actual_Returns_Count', 'Purchase_Velocity',
+    'City_Encoded',
+    'Country_Canada', 'Country_France', 'Country_Germany', 'Country_India',
+    'Country_Japan', 'Country_UK', 'Country_USA',
+    'Signup_Quarter_Q2', 'Signup_Quarter_Q3', 'Signup_Quarter_Q4',
+    'Generation_Millennial', 'Generation_Gen_X', 'Generation_Boomer',
+    'Loyalty_Tier_Established_(1-3_years)', 'Loyalty_Tier_Veteran_(3+_years)',
+]
+
+def _engineer_features(raw: dict) -> pd.DataFrame:
+    """
+    Takes raw customer input and builds the full 39-feature vector.
+    Missing numeric fields default to dataset medians.
+    """
+    row = {}
+
+    # --- 1. Numeric features (use median as default) ---
+    numeric_keys = [
+        'Age', 'Membership_Years', 'Login_Frequency', 'Pages_Per_Session',
+        'Cart_Abandonment_Rate', 'Wishlist_Items', 'Total_Purchases',
+        'Average_Order_Value', 'Days_Since_Last_Purchase', 'Discount_Usage_Rate',
+        'Returns_Rate', 'Email_Open_Rate', 'Customer_Service_Calls',
+        'Product_Reviews_Written', 'Social_Media_Engagement_Score',
+        'Mobile_App_Usage', 'Lifetime_Value', 'Credit_Balance',
+    ]
+    for key in numeric_keys:
+        row[key] = float(raw.get(key, _medians.get(key, 0)))
+
+    # --- 2. Gender one-hot (base = Female) ---
+    gender = raw.get('Gender', 'Female')
+    row['Gender_Male'] = 1 if gender == 'Male' else 0
+    row['Gender_Other'] = 1 if gender == 'Other' else 0
+
+    # --- 3. Derived / engineered features ---
+    row['Engagement_Index'] = (
+        row['Login_Frequency'] + row['Pages_Per_Session'] + row['Email_Open_Rate']
+    ) / 3
+    row['Actual_Returns_Count'] = row['Returns_Rate'] * row['Total_Purchases'] / 100
+    membership = row['Membership_Years']
+    row['Purchase_Velocity'] = (
+        row['Total_Purchases'] / membership if membership > 0 else 0
+    )
+
+    # --- 4. City label encoding ---
+    city = raw.get('City', '')
+    row['City_Encoded'] = _city_labels.get(city, -1)
+
+    # --- 5. Country one-hot (base = Australia) ---
+    country = raw.get('Country', 'Australia')
+    for c in ['Canada', 'France', 'Germany', 'India', 'Japan', 'UK', 'USA']:
+        row[f'Country_{c}'] = 1 if country == c else 0
+
+    # --- 6. Signup Quarter one-hot (base = Q1) ---
+    quarter = raw.get('Signup_Quarter', 'Q1')
+    for q in ['Q2', 'Q3', 'Q4']:
+        row[f'Signup_Quarter_{q}'] = 1 if quarter == q else 0
+
+    # --- 7. Generation from Age ---
+    age = row['Age']
+    row['Generation_Millennial'] = 1 if 26 <= age <= 41 else 0
+    row['Generation_Gen_X'] = 1 if 42 <= age <= 57 else 0
+    row['Generation_Boomer'] = 1 if age >= 58 else 0
+
+    # --- 8. Loyalty Tier from Membership_Years ---
+    row['Loyalty_Tier_Established_(1-3_years)'] = 1 if 1 <= membership <= 3 else 0
+    row['Loyalty_Tier_Veteran_(3+_years)'] = 1 if membership > 3 else 0
+
+    # Build DataFrame in exact model column order
+    return pd.DataFrame([{f: row[f] for f in MODEL_FEATURES}])
+
+def predict_churn(customer_data: dict) -> dict:
+    """
+    Receives raw attributes, engineers features, and makes ML prediction.
+    """
+    if not assets_loaded:
+        raise ValueError("Model is not loaded.")
+    
+    input_df = _engineer_features(customer_data)
+    prediction = model.predict(input_df)
+    probability = model.predict_proba(input_df)[:, 1]
+    
+    return {
+        "churn_risk": int(prediction[0]),
+        "probability": float(probability[0])
+    }
+
+def get_model_comparison():
+    return {
+        "Model": ["LightGBM (Champion)", "Random Forest", "XGBoost", "Decision Tree (Baseline)", "Logistic Regression"],
+        "Accuracy": [0.89, 0.84, 0.87, 0.81, 0.76],
+        "Precision": [0.86, 0.81, 0.85, 0.78, 0.72],
+        "Recall": [0.83, 0.79, 0.81, 0.74, 0.68],
+        "F1_Score": [0.84, 0.80, 0.83, 0.76, 0.70],
+        "Training_Time_Sec": [1.2, 4.5, 2.1, 0.08, 0.5]
+    }
+
+# --- 🔄 ROUTING HELPER FUNCTION (REPLACES WEB API REQS) ---
 def fetch_data(endpoint):
     """
-    Helper function to GET data from our FastAPI backend.
+    In-memory router. Direct drop-in replacement for the old requests.get.
     """
+    if not assets_loaded:
+        return None
+        
     try:
-        response = requests.get(f"{API_URL}/{endpoint}")
-        if response.status_code == 200:
-            return response.json()
-    except Exception:
-        pass
+        if endpoint == "dashboard-stats":
+            return get_dashboard_stats()
+        elif endpoint == "marketing-targets":
+            return get_marketing_targets()
+        elif endpoint == "geo-segmentation":
+            return get_geo_segmentation()
+        elif endpoint == "model-comparison":
+            return get_model_comparison()
+    except Exception as e:
+        st.error(f"Failed to fetch data locally for '{endpoint}': {e}")
     return None
 
-# # --- SIDEBAR NAVIGATION ---
-# st.sidebar.title("Navigation")
-# tab = st.sidebar.selectbox("Go to", ["Dashboard", "Segmentation", "Churn Predictor", "Marketing Strategy"])
-
-# --- ⬅️ SIDEBAR REDESIGN (3 CLEAR BUTTONS) ---
+# --- ⬅️ SIDEBAR NAVIGATION (3 CLEAR BUTTONS) ---
 with st.sidebar:
     st.title("🚀 Control Panel")
     
@@ -94,6 +312,10 @@ def render_predictor():
             purchases = st.number_input("Total Purchases", 0, 100, 10)
 
         if st.form_submit_button("🚀 Run AI Prediction"):
+            if not assets_loaded:
+                st.error("Model assets not loaded.")
+                st.stop()
+                
             payload = {
                 "Age": age, 
                 "Membership_Years": membership, 
@@ -104,13 +326,13 @@ def render_predictor():
             }
             
             try:
-                res = requests.post(f"{API_URL}/predict", json=payload).json()
+                res = predict_churn(payload)
                 if res.get('churn_risk') == 1:
                     st.error(f"HIGH RISK ({res['probability']:.1%})")
                 else:
                     st.success(f"LOW RISK ({res['probability']:.1%})")
             except Exception as e:
-                st.error("Connection to Backend Failed. Is Uvicorn running?")
+                st.error(f"Prediction failed: {e}")
 
 # --- 🖼️ MAIN LAYOUT LOGIC ---
 
@@ -122,13 +344,18 @@ else:
     main_col, side_col = st.columns([0.7, 0.3], gap="large")
 
 with main_col:
+        if not assets_loaded:
+            st.error("⚠️ Failed to load machine learning assets (model and/or dataset).")
+            st.info(f"Details: {load_error}")
+            st.stop()
+            
         # --- TAB 1: DASHBOARD ---
         if st.session_state.page == "Dashboard":
             st.title("📊 Strategic Dashboard")
             data = fetch_data("dashboard-stats")
         
             if not data:
-                st.warning("⚠️ Unable to connect to the backend API. Please make sure the backend server is running on port 8001.")
+                st.warning("⚠️ Local data load failed.")
                 st.stop()
 
             # Display 10 KPIs in a grid
@@ -211,7 +438,7 @@ with main_col:
             # Fetch processed data from Backend
             data = fetch_data("geo-segmentation")
             if not data:
-                st.warning("⚠️ Unable to connect to the backend API. Please make sure the backend server is running on port 8001.")
+                st.warning("⚠️ Local data load failed.")
                 st.stop()
 
             df_plot = pd.DataFrame(data)
@@ -266,7 +493,7 @@ with main_col:
                 st.session_state.page = "Dashboard"
                 st.rerun()
 
-            st.write("Enter customer details below. The backend handles all feature engineering automatically.")
+            st.write("Enter customer details below. Machine learning calculations and feature engineering happen instantly.")
 
             with st.form("prediction_form"):
                 # --- Section 1: Demographics ---
@@ -337,12 +564,10 @@ with main_col:
                         "Credit_Balance": credit,
                     }
 
-                    res = requests.post(f"{API_URL}/predict", json=payload).json()
+                    res = predict_churn(payload)
 
                     st.divider()
-                    if "detail" in res:
-                        st.error(f"⚠️ Backend Error: {res['detail']}")
-                    elif res.get('churn_risk') == 1:
+                    if res.get('churn_risk') == 1:
                         st.error(f"🚨 **HIGH CHURN RISK** — Probability: {res['probability']:.2%}")
                         st.warning("**Recommendation:** Trigger a retention campaign immediately.")
                     else:
@@ -356,7 +581,7 @@ with main_col:
             
             comp_data = fetch_data("model-comparison")
             if not comp_data:
-                st.error("Connection to Backend failed.")
+                st.error("Local data load failed.")
                 st.stop()
 
             df_comp = pd.DataFrame(comp_data)
@@ -418,4 +643,4 @@ if st.session_state.page not in ["Churn Predictor", "Model Comparison", "Strateg
     with side_col:
         st.markdown("""<div style="background-color: #f0f2f6; padding: 0px; border-radius: 10px; border: 0px solid #dfe1e5;">""", unsafe_allow_html=True)
         render_predictor()
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
