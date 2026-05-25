@@ -8,6 +8,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import os
 import logging
+import shap
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Analytics Pro", layout="wide")
 
@@ -203,6 +205,96 @@ def _engineer_features(raw: dict) -> pd.DataFrame:
 
     # Build DataFrame in exact model column order
     return pd.DataFrame([{f: row[f] for f in MODEL_FEATURES}])
+
+def prepare_X_test_df(df_test, medians, city_labels):
+    """
+    Vectorized feature engineering for the entire test set.
+    """
+    df_feat = pd.DataFrame(index=df_test.index)
+    
+    # 1. Numeric features
+    numeric_keys = [
+        'Age', 'Membership_Years', 'Login_Frequency', 'Pages_Per_Session',
+        'Cart_Abandonment_Rate', 'Wishlist_Items', 'Total_Purchases',
+        'Average_Order_Value', 'Days_Since_Last_Purchase', 'Discount_Usage_Rate',
+        'Returns_Rate', 'Email_Open_Rate', 'Customer_Service_Calls',
+        'Product_Reviews_Written', 'Social_Media_Engagement_Score',
+        'Mobile_App_Usage', 'Lifetime_Value', 'Credit_Balance',
+    ]
+    for key in numeric_keys:
+        df_feat[key] = df_test[key].fillna(medians.get(key, 0)).astype(float)
+        
+    # 2. Gender one-hot
+    gender = df_test['Gender'].fillna('Female')
+    df_feat['Gender_Male'] = (gender == 'Male').astype(int)
+    df_feat['Gender_Other'] = (gender == 'Other').astype(int)
+    
+    # 3. Derived / engineered features
+    df_feat['Engagement_Index'] = (
+        df_feat['Login_Frequency'] + df_feat['Pages_Per_Session'] + df_feat['Email_Open_Rate']
+    ) / 3
+    df_feat['Actual_Returns_Count'] = df_feat['Returns_Rate'] * df_feat['Total_Purchases'] / 100
+    df_feat['Purchase_Velocity'] = np.where(
+        df_feat['Membership_Years'] > 0,
+        df_feat['Total_Purchases'] / df_feat['Membership_Years'],
+        0
+    )
+    
+    # 4. City label encoding
+    df_feat['City_Encoded'] = df_test['City'].map(city_labels).fillna(-1).astype(int)
+    
+    # 5. Country one-hot
+    country = df_test['Country'].fillna('Australia')
+    for c in ['Canada', 'France', 'Germany', 'India', 'Japan', 'UK', 'USA']:
+        df_feat[f'Country_{c}'] = (country == c).astype(int)
+        
+    # 6. Signup Quarter one-hot
+    quarter = df_test['Signup_Quarter'].fillna('Q1')
+    for q in ['Q2', 'Q3', 'Q4']:
+        df_feat[f'Signup_Quarter_{q}'] = (quarter == q).astype(int)
+        
+    # 7. Generation from Age
+    age = df_feat['Age']
+    df_feat['Generation_Millennial'] = ((age >= 26) & (age <= 41)).astype(int)
+    df_feat['Generation_Gen_X'] = ((age >= 42) & (age <= 57)).astype(int)
+    df_feat['Generation_Boomer'] = (age >= 58).astype(int)
+    
+    # 8. Loyalty Tier from Membership_Years
+    membership = df_feat['Membership_Years']
+    df_feat['Loyalty_Tier_Established_(1-3_years)'] = ((membership >= 1) & (membership <= 3)).astype(int)
+    df_feat['Loyalty_Tier_Veteran_(3+_years)'] = (membership > 3).astype(int)
+    
+    # Return in correct order
+    return df_feat[MODEL_FEATURES]
+
+@st.cache_resource
+def get_shap_analysis(_model, _df, _medians, _city_labels):
+    """
+    Splits the dataset and computes SHAP explainer and SHAP values for a sample of the test set.
+    """
+    from sklearn.model_selection import train_test_split
+    
+    # Split 20% test set
+    if 'Churned' in _df.columns:
+        _, test_df = train_test_split(_df, test_size=0.2, random_state=42, stratify=_df['Churned'])
+        X_test = prepare_X_test_df(test_df, _medians, _city_labels)
+    else:
+        X_test = prepare_X_test_df(_df, _medians, _city_labels)
+        
+    # Sample test set to maintain extreme high speed in streamlit dashboard
+    if len(X_test) > 500:
+        X_test_sampled = X_test.sample(500, random_state=42)
+    else:
+        X_test_sampled = X_test
+        
+    explainer = shap.TreeExplainer(_model)
+    shap_values = explainer.shap_values(X_test_sampled)
+    
+    # Handle list or single array output for binary classification
+    shap_churn = shap_values[1] if isinstance(shap_values, list) else shap_values
+    
+    return explainer, shap_churn, X_test_sampled
+
 
 def predict_churn(customer_data: dict) -> dict:
     """
@@ -627,16 +719,78 @@ with main_col:
                 This is why LightGBM has a **+8% higher F1-Score** than our baseline.
                 """)
 
-            # --- 3. FEATURE IMPORTANCE ---
-            st.subheader("3. What drives the 'Decision'?")
-            # This visualizes the 'rules' found by the models
-            feature_importance = {
-                "Feature": ["Service Calls", "LTV", "Membership", "Logins", "App Usage"],
-                "Importance": [0.35, 0.25, 0.20, 0.12, 0.08]
-            }
-            fig_feat = px.bar(feature_importance, x="Importance", y="Feature", orientation='h', 
-                            title="Key Churn Drivers (Aggregated from Models)")
-            st.plotly_chart(fig_feat, width='stretch')
+            # --- 3. SHAP EXPLAINABILITY ANALYSIS ---
+            st.subheader("3. What drives the 'Decision'? (SHAP Explainability Analysis)")
+            st.markdown("""
+            **SHAP (SHapley Additive exPlanations)** is a state-of-the-art cooperative game theory method to explain 
+            individual and global predictions made by machine learning models. 
+            Unlike general feature importance which only shows *what* features are important, SHAP tells us 
+            *how* each feature impacts the prediction (positive/negative direction and magnitude) for individual customers.
+            """)
+            
+            try:
+                # Compute and retrieve SHAP values
+                with st.spinner("Calculating SHAP Explainability Values (cached for performance)..."):
+                    explainer, shap_churn, X_test_sampled = get_shap_analysis(model, df, _medians, _city_labels)
+                
+                # Render SHAP visualizations in organized tabs
+                shap_tab1, shap_tab2, shap_tab3 = st.tabs([
+                    "📊 Global Beeswarm Summary", 
+                    "📈 Global Feature Importance (Bar)", 
+                    "🎯 Individual Customer Explainer (Waterfall)"
+                ])
+                
+                with shap_tab1:
+                    st.write("""
+                    **Beeswarm Plot**: Shows the distribution of the impact each feature has on the model's output. 
+                    Each dot represents a customer. The color indicates the feature value (red = high, blue = low). 
+                    For example, high **Customer Service Calls** (red) pushes the churn risk **higher** (right).
+                    """)
+                    fig1, ax1 = plt.subplots(figsize=(10, 6))
+                    # Pass the matplotlib axis explicitly
+                    shap.summary_plot(shap_churn, X_test_sampled, plot_type="dot", max_display=15, show=False)
+                    plt.tight_layout()
+                    st.pyplot(fig1)
+                    plt.close(fig1)
+                    
+                with shap_tab2:
+                    st.write("""
+                    **Global Feature Importance**: Explains which features have the greatest overall impact on the model's decisions. 
+                    This represents the mean absolute SHAP value for each feature.
+                    """)
+                    fig2, ax2 = plt.subplots(figsize=(10, 6))
+                    shap.summary_plot(shap_churn, X_test_sampled, plot_type="bar", max_display=15, show=False)
+                    plt.tight_layout()
+                    st.pyplot(fig2)
+                    plt.close(fig2)
+                    
+                with shap_tab3:
+                    st.write("### Single Prediction Waterfall Explainer")
+                    st.markdown("""
+                    Choose a customer from the sampled test set using the slider below to see **exactly why** the LightGBM model predicted their churn probability. 
+                    - **Blue bars**: Features that *decrease* their risk of churning.
+                    - **Red bars**: Features that *increase* their risk of churning.
+                    """)
+                    
+                    sample_idx = st.slider("Select Customer Index from Test Set:", 0, len(X_test_sampled) - 1, 0)
+                    
+                    fig3, ax3 = plt.subplots(figsize=(10, 6))
+                    # Construct Explanation object as requested
+                    explanation = shap.Explanation(
+                        values=shap_churn[sample_idx],
+                        base_values=explainer.expected_value[1] if isinstance(explainer.expected_value, list) else explainer.expected_value,
+                        data=X_test_sampled.iloc[sample_idx],
+                        feature_names=X_test_sampled.columns.tolist()
+                    )
+                    shap.plots.waterfall(explanation, show=False)
+                    plt.tight_layout()
+                    st.pyplot(fig3)
+                    plt.close(fig3)
+                    
+            except Exception as e:
+                st.error(f"Failed to calculate/render SHAP analysis: {e}")
+                st.exception(e)
+
 
 # THE RIGHT-SIDEBAR PREDICTOR (Hidden under Churn Predictor page)
 if st.session_state.page not in ["Churn Predictor", "Model Comparison", "Strategy"]:
