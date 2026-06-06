@@ -377,6 +377,10 @@ with st.sidebar:
         st.session_state.page = "Strategy"
         st.session_state.fullscreen_predictor = False
 
+    if st.button("📽️ Presentation"):
+        st.session_state.page = "Presentation"
+        st.session_state.fullscreen_predictor = False
+
 # --- 🧠 PREDICTOR LOGIC (SHARED COMPONENT) ---
 def render_predictor():
     # Header row with title + expand icon button
@@ -428,7 +432,7 @@ def render_predictor():
 
 # --- 🖼️ MAIN LAYOUT LOGIC ---
 
-if st.session_state.page in ["Churn Predictor", "Model Comparison", "Strategy"]:
+if st.session_state.page in ["Churn Predictor", "Model Comparison", "Strategy", "Presentation"]:
     # 100% full screen layout for Churn Predictor and Model Comparison forms
     main_col = st.container()
 else:
@@ -793,8 +797,335 @@ with main_col:
                 st.exception(e)
 
 
-# THE RIGHT-SIDEBAR PREDICTOR (Hidden under Churn Predictor page)
-if st.session_state.page not in ["Churn Predictor", "Model Comparison", "Strategy"]:
+        # --- TAB 5: PRESENTATION ---
+        elif st.session_state.page == "Presentation":
+            # ── shared CSS ──────────────────────────────────────────────────
+            st.markdown("""
+            <style>
+            /* slide card */
+            .slide-card {
+                background: #0F1B35;
+                border-radius: 12px;
+                padding: 28px 32px;
+                margin-bottom: 24px;
+                border-left: 5px solid #0D9488;
+                color: #F8FAFC;
+            }
+            .slide-card h2 { color: #14B8A6; margin-top: 0; font-size: 1.35rem; }
+            .slide-tag {
+                display: inline-block;
+                background: #1A3560;
+                color: #94A3B8;
+                font-size: 0.72rem;
+                letter-spacing: 2px;
+                padding: 2px 10px;
+                border-radius: 4px;
+                margin-bottom: 10px;
+            }
+            /* metric pill */
+            .pill {
+                display: inline-block;
+                background: #1A3560;
+                border: 1px solid #0D9488;
+                border-radius: 8px;
+                padding: 10px 18px;
+                margin: 6px;
+                text-align: center;
+            }
+            .pill .val { font-size: 1.7rem; font-weight: 700; color: #0D9488; }
+            .pill .lbl { font-size: 0.78rem; color: #94A3B8; }
+            /* segment cards */
+            .seg { border-radius: 8px; padding: 16px; margin: 6px 0; }
+            .seg-green { background:#0D94881A; border-left:4px solid #0D9488; }
+            .seg-orange { background:#F973161A; border-left:4px solid #F97316; }
+            .seg-red   { background:#EF44441A; border-left:4px solid #EF4444; }
+            .seg h4 { margin:0 0 4px 0; }
+            /* model table row */
+            .winner { color:#0D9488; font-weight:700; }
+            </style>
+            """, unsafe_allow_html=True)
+
+            st.title("📽️ Project Presentation")
+            st.caption("WQD7012 Applied Machine Learning — OCC 3 Group 18 | 10-slide walkthrough")
+            st.divider()
+
+            # ── SLIDE 1: Title ───────────────────────────────────────────
+            st.markdown("""
+            <div class="slide-card">
+                <span class="slide-tag">SLIDE 01 — TITLE</span>
+                <h2>E-Commerce Customer Churn Prediction</h2>
+                <p style="color:#94A3B8;">WQD7012 Applied Machine Learning &nbsp;|&nbsp; OCC 3 Group 18</p>
+                <p style="color:#CBD5E1; font-size:0.9rem;">
+                    Lam Jun Yan &nbsp;·&nbsp; Lim Zhi Yu &nbsp;·&nbsp; Chong Yan Yi &nbsp;·&nbsp;
+                    Chong Jia Wei &nbsp;·&nbsp; Eng Hong Chee
+                </p>
+                <p style="color:#0D9488; font-size:0.85rem; font-style:italic;">
+                    Lecturer: Ts. Dr. Riyaz Ahamed Ariyaluran Habeeb Mohamed
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # ── SLIDE 2: Problem & Objectives ────────────────────────────
+            st.markdown('<div class="slide-card"><span class="slide-tag">SLIDE 02 — PROBLEM & OBJECTIVES</span><h2>Problem Statement & Objectives</h2></div>', unsafe_allow_html=True)
+            col_prob, col_obj = st.columns(2)
+            with col_prob:
+                st.markdown("**The Problem**")
+                for p in [
+                    "🔴  Churn prediction & segmentation treated separately, missing cross-segment drivers",
+                    "🔴  Generalised 'one-size-fits-all' marketing wastes discounts on loyal users",
+                    "🔴  Black-box models provide no actionable explanation for stakeholders",
+                ]:
+                    st.markdown(f"> {p}")
+            with col_obj:
+                st.markdown("**Objectives**")
+                for o in [
+                    "✅  **Identify** key behavioural factors driving churn via EDA & feature importance",
+                    "✅  **Segment** customers with K-Means to reveal high-value vs at-risk groups",
+                    "✅  **Evaluate** 5 ML models (LR · NB · DT · RF · LightGBM) for accuracy vs interpretability",
+                ]:
+                    st.markdown(o)
+
+            st.divider()
+
+            # ── SLIDE 3: Dataset ─────────────────────────────────────────
+            st.markdown('<div class="slide-card"><span class="slide-tag">SLIDE 03 — DATASET & PREPROCESSING</span><h2>Dataset & Preprocessing</h2></div>', unsafe_allow_html=True)
+
+            p1, p2, p3, p4 = st.columns(4)
+            p1.metric("Customers", "50,000", "8 global markets")
+            p2.metric("Features", "25", "demographics + behaviour")
+            p3.metric("Missing Cols", "14", "up to ~12% per feature")
+            p4.metric("Class Imbalance", "2.46 : 1", "Not-Churned vs Churned")
+
+            st.markdown("**Preprocessing pipeline**")
+            steps = {
+                "Data Inspection": "df.info() / describe() → unrealistic ages, negative values found",
+                "Missing Data": "Mode (categorical) · Median (skewed) · Mean (symmetric)",
+                "Outlier Handling": "IQR Winsorization on Lifetime_Value; age capped 18–90, scores 0–100",
+                "Class Imbalance": "Stratified 80/20 split → SMOTE on training set → 28,440 : 28,440",
+                "Encoding & Scaling": "Target Encoding (geography) · One-Hot (categorical text) · StandardScaler",
+            }
+            for k, v in steps.items():
+                st.markdown(f"- **{k}:** {v}")
+
+            st.divider()
+
+            # ── SLIDE 4: EDA ─────────────────────────────────────────────
+            st.markdown('<div class="slide-card"><span class="slide-tag">SLIDE 04 — EDA & FEATURE ENGINEERING</span><h2>EDA & Feature Engineering</h2></div>', unsafe_allow_html=True)
+
+            col_eda, col_feat = st.columns(2)
+            with col_eda:
+                st.markdown("**Key Correlation Findings**")
+                eda_data = {
+                    "Feature": ["Customer Service Calls", "Cart Abandonment Rate", "Session Duration", "Login Frequency"],
+                    "Correlation": ["+0.29", "+0.28", "−0.22", "−0.20"],
+                    "Direction": ["↑ churn", "↑ churn", "↓ churn (retention)", "↓ churn (retention)"],
+                }
+                st.dataframe(pd.DataFrame(eda_data), hide_index=True, use_container_width=True)
+                st.warning("⚠️ Session Duration ↔ Pages/Session: r = 0.71 (multicollinearity risk)")
+
+            with col_feat:
+                st.markdown("**Engineered Features**")
+                for f, d in [
+                    ("Engagement Index", "login_freq + pages_per_session + email_open_rate / 3"),
+                    ("Purchase Velocity", "total_purchases / membership_years"),
+                    ("Actual Returns Count", "returns_rate × total_purchases / 100"),
+                    ("Loyalty Tiers", "membership_years → New / Established / Veteran"),
+                    ("Generation Bins", "age → Gen Z / Millennial / Gen X / Boomer"),
+                    ("Corr Threshold |0.10|", "dropped low-signal & multicollinear columns"),
+                ]:
+                    st.markdown(f"- **{f}:** `{d}`")
+
+            st.divider()
+
+            # ── SLIDE 5: Models ───────────────────────────────────────────
+            st.markdown('<div class="slide-card"><span class="slide-tag">SLIDE 05 — PREDICTIVE MODELLING</span><h2>5 Models Compared</h2></div>', unsafe_allow_html=True)
+
+            models_info = [
+                ("Logistic Regression", "Hong Chee", "Linear", "Transparent baseline; interpretable coefficients for stakeholders"),
+                ("Decision Tree (Tuned)", "Zhi Yu",   "Tree",   "Simple rule extraction; GridSearchCV tuned (depth=10, min_split=100)"),
+                ("Random Forest",        "Jia Wei",   "Ensemble","Ensemble reduces overfitting; captures non-linear interactions"),
+                ("Naive Bayes",          "Yan Yi",    "Probabilistic","Fast probabilistic baseline; handles sparse/missing data well"),
+                ("LightGBM ⭐",          "Jun Yan",   "Boosting","Gradient boosting; best Recall & ROC-AUC; handles large feature spaces"),
+            ]
+            tag_colors = {"Linear":"#64748B","Tree":"#2563EB","Ensemble":"#7C3AED","Probabilistic":"#F97316","Boosting":"#0D9488"}
+            for name, who, tag, why in models_info:
+                tc = tag_colors.get(tag, "#0D9488")
+                st.markdown(f"""
+                <div style="display:flex;align-items:center;background:#1E293B;border-radius:8px;
+                            padding:12px 16px;margin-bottom:8px;border-left:4px solid {tc};">
+                    <div style="flex:1">
+                        <strong style="color:#F8FAFC;">{name}</strong>
+                        <span style="color:#94A3B8;font-size:0.82rem;margin-left:8px;">— {who}</span><br>
+                        <span style="color:#CBD5E1;font-size:0.88rem;">{why}</span>
+                    </div>
+                    <div style="background:{tc};color:#fff;font-size:0.75rem;padding:3px 10px;
+                                border-radius:12px;white-space:nowrap;margin-left:12px;">{tag}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.divider()
+
+            # ── SLIDE 6: Results ──────────────────────────────────────────
+            st.markdown('<div class="slide-card"><span class="slide-tag">SLIDE 06 — RESULTS & MODEL COMPARISON</span><h2>Results & Model Comparison</h2></div>', unsafe_allow_html=True)
+
+            results_df = pd.DataFrame({
+                "Model":     ["LightGBM ⭐", "Decision Tree (Tuned)", "Random Forest", "LR (Tuned)", "LR (Baseline)", "Naive Bayes"],
+                "Recall":    [0.9042, 0.8924, 0.8702, 0.8135, 0.7505, 0.2879],
+                "Precision": [0.4555, 0.4510, 0.4666, 0.3575, 0.3740, 0.4790],
+                "F1-Score":  [0.6058, 0.5992, 0.6075, 0.4967, 0.4993, 0.3596],
+                "ROC-AUC":   [0.7742, 0.7309, 0.7130, 0.7012, 0.7008, 0.6128],
+                "Accuracy":  [0.6599, 0.6550, 0.6750, 0.5235, 0.5649, 0.7037],
+            })
+            st.dataframe(
+                results_df.style
+                    .highlight_max(subset=["Recall","ROC-AUC"], color="#0D948840")
+                    .highlight_min(subset=["Recall","ROC-AUC"], color="#EF444430"),
+                hide_index=True, use_container_width=True
+            )
+            st.info("**Primary metric: Recall** — minimising missed churners outweighs false-positive retention costs (2.46:1 imbalance).")
+
+            # ROC bar chart
+            fig_roc = px.bar(
+                results_df.sort_values("ROC-AUC"),
+                x="ROC-AUC", y="Model", orientation="h",
+                color="ROC-AUC",
+                color_continuous_scale=["#1A3560","#0D9488"],
+                title="ROC-AUC Comparison",
+                range_x=[0.55, 0.82],
+            )
+            fig_roc.update_layout(
+                height=300, showlegend=False,
+                plot_bgcolor="#0F1B35", paper_bgcolor="#0F1B35",
+                font_color="#CBD5E1",
+                coloraxis_showscale=False,
+            )
+            fig_roc.update_traces(marker_line_width=0)
+            st.plotly_chart(fig_roc, use_container_width=True)
+
+            st.divider()
+
+            # ── SLIDE 7: Segmentation ─────────────────────────────────────
+            st.markdown('<div class="slide-card"><span class="slide-tag">SLIDE 07 — CUSTOMER SEGMENTATION</span><h2>K-Means Segmentation (k=3)</h2></div>', unsafe_allow_html=True)
+            st.caption("k selected via Elbow Method + Silhouette Score · PCA 3D confirms separation (98.8% variance explained)")
+
+            sc1, sc2, sc3 = st.columns(3)
+            segs = [
+                (sc1, "seg-green", "Segment 1 — High-Value / Engaged",  "< 40% churn risk",
+                 ["Highest Lifetime_Value","Frequent logins + high purchase velocity",
+                  "Low customer service friction","Strategy: Exclusive loyalty perks"]),
+                (sc2, "seg-orange","Segment 2 — Moderate / Average",     "~50% churn risk",
+                 ["Intermediate across all dimensions","Stable base with growth potential",
+                  "Moderate service calls","Strategy: Upselling & cross-sell"]),
+                (sc3, "seg-red",   "Segment 3 — Low-Value / At-Risk",    "> 60% churn risk",
+                 ["Lowest Lifetime_Value","High Cart_Abandonment_Rate",
+                  "Elevated Customer_Service_Calls","Strategy: Immediate win-back campaign"]),
+            ]
+            for col, cls, title, risk, bullets in segs:
+                with col:
+                    st.markdown(f'<div class="seg {cls}"><h4>{title}</h4><strong>{risk}</strong></div>', unsafe_allow_html=True)
+                    for b in bullets:
+                        st.markdown(f"• {b}")
+
+            st.success("📊 **23 percentage-point spread** in churn risk between Segment 1 and Segment 3")
+            st.divider()
+
+            # ── SLIDE 8: SHAP ─────────────────────────────────────────────
+            st.markdown('<div class="slide-card"><span class="slide-tag">SLIDE 08 — INTERPRETABILITY (SHAP)</span><h2>Model Interpretability — SHAP (LightGBM)</h2></div>', unsafe_allow_html=True)
+
+            col_shap, col_ins = st.columns([1, 1])
+            with col_shap:
+                st.markdown("**Top Features (mean |SHAP|)**")
+                shap_df = pd.DataFrame({
+                    "Feature": ["Lifetime_Value","Customer_Service_Calls","Age",
+                                "Cart_Abandonment_Rate","Days_Since_Last_Purchase",
+                                "Discount_Usage_Rate","Loyalty_Tier_Veteran","Email_Open_Rate"],
+                    "Importance": [1.00, 0.85, 0.35, 0.28, 0.22, 0.19, 0.16, 0.14],
+                })
+                fig_shap = px.bar(
+                    shap_df.sort_values("Importance"),
+                    x="Importance", y="Feature", orientation="h",
+                    color="Importance",
+                    color_continuous_scale=["#1A3560","#0D9488"],
+                )
+                fig_shap.update_layout(
+                    height=300, showlegend=False, coloraxis_showscale=False,
+                    plot_bgcolor="#0F1B35", paper_bgcolor="#0F1B35", font_color="#CBD5E1",
+                    margin=dict(l=0, r=10, t=10, b=0),
+                )
+                fig_shap.update_traces(marker_line_width=0)
+                st.plotly_chart(fig_shap, use_container_width=True)
+
+            with col_ins:
+                st.markdown("**Key SHAP Insights**")
+                for icon, title, body in [
+                    ("💡","Feature Dominance","Lifetime_Value & Customer_Service_Calls contribute 4× more than all other features combined"),
+                    ("📈","Churn Drivers","High Cart_Abandonment_Rate + long Days_Since_Last_Purchase push strongly toward churn"),
+                    ("🎁","Retention Signal","High Discount_Usage_Rate → lower churn; promotions retain price-sensitive users"),
+                    ("⚠️","Counterintuitive","High Lifetime_Value can sometimes increase churn risk for recently disengaged high-spenders"),
+                ]:
+                    st.markdown(f"**{icon} {title}**")
+                    st.caption(body)
+                    st.markdown("")
+
+            st.divider()
+
+            # ── SLIDE 9: Conclusion ───────────────────────────────────────
+            st.markdown('<div class="slide-card"><span class="slide-tag">SLIDE 09 — CONCLUSION</span><h2>Conclusion & Limitations</h2></div>', unsafe_allow_html=True)
+
+            col_conc, col_lim = st.columns(2)
+            with col_conc:
+                st.markdown("**Key Findings**")
+                for item in [
+                    "🏆 **LightGBM** best model — Recall 90.4%, ROC-AUC 0.774, F1 0.606",
+                    "🎯 **SMOTE** effectively resolved 2.46:1 class imbalance",
+                    "🔍 **SHAP** confirms Lifetime_Value & Service_Calls dominate predictions",
+                    "📊 **K-Means k=3** produces 23pp churn-risk spread across segments",
+                    "🚀 **Streamlit** app deployed · GitHub repo available",
+                ]:
+                    st.markdown(item)
+
+            with col_lim:
+                st.markdown("**Limitations & Future Work**")
+                for item in [
+                    "📉 Moderate F1 (0.606) — high FP rate may inflate retention costs at scale",
+                    "📸 Dataset is a time snapshot; may miss seasonal/longitudinal trends",
+                    "🧪 SMOTE generates synthetic samples that may not reflect real minority behaviour",
+                    "🔮 Future: threshold tuning · survival analysis · RNN for temporal dynamics",
+                    "📡 Future: live A/B testing environment for continuous retraining",
+                ]:
+                    st.markdown(item)
+
+            st.divider()
+
+            # ── SLIDE 10: Demo Roadmap ────────────────────────────────────
+            st.markdown('<div class="slide-card"><span class="slide-tag">SLIDE 10 — CODE DEMO ROADMAP</span><h2>Code Demo Roadmap (6 min)</h2></div>', unsafe_allow_html=True)
+
+            demo_steps = [
+                ("1 min", "📂 Data Loading & Inspection",       "Show df.info(), missing values, class distribution pie chart"),
+                ("1 min", "📊 EDA",                             "Correlation heatmap, churn-by-country bars, continuous variable distributions"),
+                ("1 min", "⚙️ Feature Engineering + SMOTE",     "Derived features, encoding, SMOTE balancing — before/after class distribution"),
+                ("1 min", "🤖 Model Training & Comparison",     "Fit 5 models, show performance table, ROC curve comparison plot"),
+                ("1 min", "🔍 SHAP Explainability",             "Bar plot + beeswarm + waterfall for one customer — available in Model Comparison tab"),
+                ("1 min", "🌐 Segmentation + Streamlit App",    "K-Means PCA 3D, cluster profiles, live demo of Churn Predictor form"),
+            ]
+
+            for i, (time_alloc, step_name, detail) in enumerate(demo_steps, 1):
+                c1, c2, c3 = st.columns([0.5, 2, 4])
+                with c1:
+                    st.markdown(f"**{time_alloc}**")
+                with c2:
+                    st.markdown(f"**{step_name}**")
+                with c3:
+                    st.caption(detail)
+                if i < len(demo_steps):
+                    st.markdown('<hr style="margin:4px 0;border-color:#1A3560;">', unsafe_allow_html=True)
+
+            st.markdown("")
+            st.success("🎓 Thank you — Q&A")
+
+
+
+if st.session_state.page not in ["Churn Predictor", "Model Comparison", "Strategy", "Presentation"]:
     with side_col:
         st.markdown("""<div style="background-color: #f0f2f6; padding: 0px; border-radius: 10px; border: 0px solid #dfe1e5;">""", unsafe_allow_html=True)
         render_predictor()
